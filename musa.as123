@@ -55,22 +55,16 @@ class App:
     
     def products(self):
         for w in self.fr.winfo_children(): w.destroy()
-        
-        # Фильтры только для менеджера и админа
-        if self.user[1] in ['manager','admin']:
-            pf = tk.Frame(self.fr); pf.pack(fill=tk.X, pady=5)
-            tk.Label(pf, text="Поиск:").pack(side=tk.LEFT, padx=5)
-            self.search = tk.Entry(pf, width=15); self.search.pack(side=tk.LEFT, padx=5)
-            tk.Label(pf, text="Категория:").pack(side=tk.LEFT, padx=5)
-            self.cat = ttk.Combobox(pf, values=["Все","Женская обувь","Мужская обувь"], width=12)
-            self.cat.set("Все"); self.cat.pack(side=tk.LEFT, padx=5)
-            tk.Label(pf, text="Сортировка:").pack(side=tk.LEFT, padx=5)
-            self.sort = ttk.Combobox(pf, values=["Без","Цена ↑","Цена ↓"], width=8)
-            self.sort.set("Без"); self.sort.pack(side=tk.LEFT, padx=5)
-            tk.Button(pf, text="Найти", command=self.load_products, bg="#2196F3", fg="white").pack(side=tk.LEFT, padx=10)
-        else:
-            # Гость и клиент не видят фильтры
-            self.search = self.cat = self.sort = None
+        pf = tk.Frame(self.fr); pf.pack(fill=tk.X, pady=5)
+        tk.Label(pf, text="Поиск:").pack(side=tk.LEFT, padx=5)
+        self.search = tk.Entry(pf, width=15); self.search.pack(side=tk.LEFT, padx=5)
+        tk.Label(pf, text="Категория:").pack(side=tk.LEFT, padx=5)
+        self.cat = ttk.Combobox(pf, values=["Все","Женская обувь","Мужская обувь"], width=12)
+        self.cat.set("Все"); self.cat.pack(side=tk.LEFT, padx=5)
+        tk.Label(pf, text="Сортировка:").pack(side=tk.LEFT, padx=5)
+        self.sort = ttk.Combobox(pf, values=["Без","Цена ↑","Цена ↓"], width=8)
+        self.sort.set("Без"); self.sort.pack(side=tk.LEFT, padx=5)
+        tk.Button(pf, text="Найти", command=self.load_products, bg="#2196F3", fg="white").pack(side=tk.LEFT, padx=10)
         
         cols = ['Артикул', 'Наименование', 'Цена', 'Категория', 'Скидка', 'В наличии']
         self.table = ttk.Treeview(self.fr, columns=cols, show='headings', height=20)
@@ -83,22 +77,17 @@ class App:
         for r in self.table.get_children(): self.table.delete(r)
         sql = "SELECT Article, ProductName, Price, Category, Discount, QuantityOnStock FROM Products WHERE 1=1"
         params = []
-        self.table.delete(r)
-        
-        # Фильтры применяются только если они есть (т.е. у менеджера/админа)
-        if self.search and self.search.get():
+        if self.search.get():
             s = f"%{self.search.get()}%"
             sql += " AND (Article LIKE %s OR ProductName LIKE %s)"
             params.extend([s, s])
-        if self.cat and self.cat.get() != "Все":
+        if self.cat.get() != "Все":
             sql += " AND Category = %s"
             params.append(self.cat.get())
-        if self.sort:
-            if self.sort.get() == "Цена ↑":
-                sql += " ORDER BY Price ASC"
-            elif self.sort.get() == "Цена ↓":
-                sql += " ORDER BY Price DESC"
-        
+        if self.sort.get() == "Цена ↑":
+            sql += " ORDER BY Price ASC"
+        elif self.sort.get() == "Цена ↓":
+            sql += " ORDER BY Price DESC"
         rows = self.q(sql, params)
         for row in rows: self.table.insert('', 'end', values=row)
         self.status(f"Товаров: {len(rows)}")
@@ -124,7 +113,6 @@ class App:
         if self.user[1] in ['manager','admin']:
             btn = tk.Button(self.fr, text="Сменить статус", command=lambda: self.change_status(t), bg="#FF9800", fg="white")
             btn.pack(pady=10)
-
     
     def change_status(self, t):
         s = t.selection()
@@ -207,11 +195,13 @@ class App:
             messagebox.showwarning("Внимание", "Выберите товар для удаления")
             return
         
+        # Получаем артикул как строку
         art = str(self.table.item(s[0])['values'][0])
         name = str(self.table.item(s[0])['values'][1])
         
         if messagebox.askyesno("Подтверждение", f"Удалить товар '{art}' - '{name}'?"):
             try:
+                # Используем параметризованный запрос
                 self.q("DELETE FROM Products WHERE Article = %s", (art,))
                 self.load_products()
                 messagebox.showinfo("Успех", "Товар удален!")
