@@ -1,0 +1,228 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import pymysql
+
+class App:
+    def __init__(self, r):
+        self.r = r
+        self.r.title("Обувь")
+        self.r.geometry("1200x700")
+        self.user = None
+        self.db = {'host':'localhost','user':'root','password':'1234','database':'ShoeStore'}
+        self.login()
+    
+    def q(self, sql, params=()):
+        conn = pymysql.connect(**self.db)
+        c = conn.cursor()
+        c.execute(sql, params)
+        res = c.fetchall()
+        if sql.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE')):
+            conn.commit()
+        conn.close()
+        return res
+    
+    def login(self):
+        for w in self.r.winfo_children(): w.destroy()
+        f = tk.Frame(self.r); f.pack(expand=True)
+        tk.Label(f, text="Вход", font=("Arial",20)).pack(pady=20)
+        self.l = tk.Entry(f, width=30); self.l.pack(pady=5)
+        self.p = tk.Entry(f, show="*", width=30); self.p.pack(pady=5)
+        tk.Button(f, text="Войти", command=self.auth, bg="#4CAF50", fg="white").pack(pady=10)
+        tk.Button(f, text="Гость", command=lambda: self.set_user(("Гость","guest"))).pack()
+    
+    def auth(self):
+        r = self.q("SELECT FullName, Role FROM Users WHERE Login=%s AND Password=%s", (self.l.get(), self.p.get()))
+        if r: self.set_user(r[0])
+        else: messagebox.showerror("Ошибка", "Неверный логин или пароль")
+    
+    def set_user(self, u):
+        self.user = u
+        self.main()
+    
+    def main(self):
+        for w in self.r.winfo_children(): w.destroy()
+        m = tk.Menu(self.r); self.r.config(menu=m)
+        m.add_command(label="Товары", command=self.products)
+        if self.user[1] in ['manager','admin']: m.add_command(label="Заказы", command=self.orders)
+        if self.user[1] == 'admin':
+            m.add_separator()
+            m.add_command(label="Добавить товар", command=self.add_product)
+            m.add_command(label="Редактировать товар", command=self.edit_product)
+            m.add_command(label="Удалить товар", command=self.delete_product)
+        tk.Label(self.r, text=f"{self.user[0]} | {self.user[1]}", bg="#ddd").pack(side=tk.BOTTOM, fill=tk.X)
+        self.fr = tk.Frame(self.r); self.fr.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.products()
+    
+    def products(self):
+        for w in self.fr.winfo_children(): w.destroy()
+        
+        # Фильтры только для менеджера и админа
+        if self.user[1] in ['manager','admin']:
+            pf = tk.Frame(self.fr); pf.pack(fill=tk.X, pady=5)
+            tk.Label(pf, text="Поиск:").pack(side=tk.LEFT, padx=5)
+            self.search = tk.Entry(pf, width=15); self.search.pack(side=tk.LEFT, padx=5)
+            tk.Label(pf, text="Категория:").pack(side=tk.LEFT, padx=5)
+            self.cat = ttk.Combobox(pf, values=["Все","Женская обувь","Мужская обувь"], width=12)
+            self.cat.set("Все"); self.cat.pack(side=tk.LEFT, padx=5)
+            tk.Label(pf, text="Сортировка:").pack(side=tk.LEFT, padx=5)
+            self.sort = ttk.Combobox(pf, values=["Без","Цена ↑","Цена ↓"], width=8)
+            self.sort.set("Без"); self.sort.pack(side=tk.LEFT, padx=5)
+            tk.Button(pf, text="Найти", command=self.load_products, bg="#2196F3", fg="white").pack(side=tk.LEFT, padx=10)
+        else:
+            # Гость и клиент не видят фильтры
+            self.search = self.cat = self.sort = None
+        
+        cols = ['Артикул', 'Наименование', 'Цена', 'Категория', 'Скидка', 'В наличии']
+        self.table = ttk.Treeview(self.fr, columns=cols, show='headings', height=20)
+        for i,c in enumerate(cols):
+            self.table.heading(i, text=c); self.table.column(i, width=130)
+        self.table.pack(fill=tk.BOTH, expand=True)
+        self.load_products()
+    
+    def load_products(self):
+        for r in self.table.get_children(): self.table.delete(r)
+        sql = "SELECT Article, ProductName, Price, Category, Discount, QuantityOnStock FROM Products WHERE 1=1"
+        params = []
+        self.table.delete(r)
+        
+        # Фильтры применяются только если они есть (т.е. у менеджера/админа)
+        if self.search and self.search.get():
+            s = f"%{self.search.get()}%"
+            sql += " AND (Article LIKE %s OR ProductName LIKE %s)"
+            params.extend([s, s])
+        if self.cat and self.cat.get() != "Все":
+            sql += " AND Category = %s"
+            params.append(self.cat.get())
+        if self.sort:
+            if self.sort.get() == "Цена ↑":
+                sql += " ORDER BY Price ASC"
+            elif self.sort.get() == "Цена ↓":
+                sql += " ORDER BY Price DESC"
+        
+        rows = self.q(sql, params)
+        for row in rows: self.table.insert('', 'end', values=row)
+        self.status(f"Товаров: {len(rows)}")
+    
+    def orders(self):
+        for w in self.fr.winfo_children(): w.destroy()
+        cols = ['Номер', 'Дата', 'Доставка', 'Адрес', 'Клиент', 'Код', 'Статус']
+        t = ttk.Treeview(self.fr, columns=cols, show='headings', height=20)
+        for i,c in enumerate(cols): t.heading(i, text=c); t.column(i, width=130)
+        t.pack(fill=tk.BOTH, expand=True)
+    
+    # Исправленный запрос: получаем адрес из таблицы PickupPoints через PointID
+        rows = self.q("""
+            SELECT o.OrderNumber, o.OrderDate, o.DeliveryDate, p.Address, o.CustomerName, o.PickupCode, o.Status 
+            FROM Orders o
+            JOIN PickupPoints p ON o.PointID = p.PointID
+        """)
+    
+        for r in rows: t.insert('', 'end', values=r)
+        self.status(f"Заказов: {len(rows)}")
+    
+    # Кнопка смены статуса только для менеджера и админа
+        if self.user[1] in ['manager','admin']:
+            btn = tk.Button(self.fr, text="Сменить статус", command=lambda: self.change_status(t), bg="#FF9800", fg="white")
+            btn.pack(pady=10)
+
+    
+    def change_status(self, t):
+        s = t.selection()
+        if not s: return messagebox.showwarning("", "Выберите заказ")
+        num = t.item(s[0])['values'][0]
+        st = simpledialog.askstring("Статус", "Новый статус (Новый/Завершен):")
+        if st in ["Новый", "Завершен"]:
+            self.q("UPDATE Orders SET Status=%s WHERE OrderNumber=%s", (st, num))
+            self.orders()
+            messagebox.showinfo("", "Статус обновлен")
+    
+    def add_product(self):
+        d = tk.Toplevel(self.r); d.title("Добавление товара"); d.geometry("500x650"); d.grab_set()
+        e = {}
+        fs = ['Артикул', 'Наименование', 'Цена', 'Категория', 'Скидка', 'Количество']
+        main_f = tk.Frame(d); main_f.pack(pady=30)
+        for i,f in enumerate(fs):
+            tk.Label(main_f, text=f+":", font=("Arial",12)).grid(row=i, column=0, padx=15, pady=12, sticky='e')
+            if f == 'Категория':
+                e[f] = ttk.Combobox(main_f, values=["Женская обувь", "Мужская обувь"], width=27)
+                e[f].set("Женская обувь")
+            else:
+                e[f] = tk.Entry(main_f, width=30)
+            e[f].grid(row=i, column=1, padx=15, pady=12)
+        save_btn = tk.Button(d, text="СОХРАНИТЬ ТОВАР", command=lambda: self.save_product(d, e), 
+                            bg="#4CAF50", fg="white", font=("Arial",14,"bold"), height=2, width=20)
+        save_btn.pack(pady=30)
+    
+    def save_product(self, d, e):
+        try:
+            if not e['Артикул'].get():
+                messagebox.showerror("Ошибка", "Введите артикул")
+                return
+            self.q("INSERT INTO Products VALUES (%s,%s,'шт.',%s,'','',%s,%s,%s,'',NULL)",
+                   (e['Артикул'].get(), e['Наименование'].get(), float(e['Цена'].get()),
+                    e['Категория'].get(), int(e['Скидка'].get() or 0), int(e['Количество'].get() or 0)))
+            d.destroy()
+            self.load_products()
+            messagebox.showinfo("Успех", "Товар добавлен")
+        except Exception as ex:
+            messagebox.showerror("Ошибка", str(ex))
+    
+    def edit_product(self):
+        s = self.table.selection()
+        if not s:
+            messagebox.showwarning("Внимание", "Выберите товар для редактирования")
+            return
+        v = self.table.item(s[0])['values']
+        d = tk.Toplevel(self.r); d.title("Редактирование товара"); d.geometry("500x650"); d.grab_set()
+        e = {}
+        fs = ['Артикул', 'Наименование', 'Цена', 'Категория', 'Скидка', 'Количество']
+        main_f = tk.Frame(d); main_f.pack(pady=30)
+        for i,f in enumerate(fs):
+            tk.Label(main_f, text=f+":", font=("Arial",12)).grid(row=i, column=0, padx=15, pady=12, sticky='e')
+            if f == 'Категория':
+                e[f] = ttk.Combobox(main_f, values=["Женская обувь", "Мужская обувь"], width=27)
+                e[f].set(v[3])
+            else:
+                e[f] = tk.Entry(main_f, width=30)
+                e[f].insert(0, str(v[i]))
+            e[f].grid(row=i, column=1, padx=15, pady=12)
+        save_btn = tk.Button(d, text="СОХРАНИТЬ ИЗМЕНЕНИЯ", command=lambda: self.update_product(d, e), 
+                            bg="#4CAF50", fg="white", font=("Arial",14,"bold"), height=2, width=20)
+        save_btn.pack(pady=30)
+    
+    def update_product(self, d, e):
+        try:
+            self.q("UPDATE Products SET ProductName=%s,Price=%s,Category=%s,Discount=%s,QuantityOnStock=%s WHERE Article=%s",
+                   (e['Наименование'].get(), float(e['Цена'].get()), e['Категория'].get(),
+                    int(e['Скидка'].get() or 0), int(e['Количество'].get() or 0), e['Артикул'].get()))
+            d.destroy()
+            self.load_products()
+            messagebox.showinfo("Успех", "Товар обновлен")
+        except Exception as ex:
+            messagebox.showerror("Ошибка", str(ex))
+    
+    def delete_product(self):
+        s = self.table.selection()
+        if not s:
+            messagebox.showwarning("Внимание", "Выберите товар для удаления")
+            return
+        
+        art = str(self.table.item(s[0])['values'][0])
+        name = str(self.table.item(s[0])['values'][1])
+        
+        if messagebox.askyesno("Подтверждение", f"Удалить товар '{art}' - '{name}'?"):
+            try:
+                self.q("DELETE FROM Products WHERE Article = %s", (art,))
+                self.load_products()
+                messagebox.showinfo("Успех", "Товар удален!")
+            except Exception as ex:
+                messagebox.showerror("Ошибка удаления", f"Не удалось удалить: {ex}")
+    
+    def status(self, t):
+        if hasattr(self, 'l'): self.l.destroy()
+        self.l = tk.Label(self.fr, text=t, fg="blue"); self.l.pack(side=tk.BOTTOM)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    App(root)
+    root.mainloop()
