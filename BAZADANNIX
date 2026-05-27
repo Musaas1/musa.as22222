@@ -1,0 +1,68 @@
+-- Создание базы данных
+CREATE DATABASE IF NOT EXISTS ShoeStore;
+USE ShoeStore;
+
+-- =====================================================
+-- 1. ТАБЛИЦА ТОВАРОВ
+-- =====================================================
+CREATE TABLE IF NOT EXISTS Products (
+    Article VARCHAR(20) PRIMARY KEY,
+    ProductName VARCHAR(100) NOT NULL,
+    Unit VARCHAR(10) NOT NULL,
+    Price DECIMAL(10,2) NOT NULL,
+    Supplier VARCHAR(100),
+    Manufacturer VARCHAR(100),
+    Category VARCHAR(50),
+    Discount INT DEFAULT 0,
+    QuantityOnStock INT DEFAULT 0,
+    Description TEXT,
+    Photo VARCHAR(100)
+);
+
+-- =====================================================
+-- 2. ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ
+-- =====================================================
+CREATE TABLE IF NOT EXISTS Users (
+    UserID INT PRIMARY KEY AUTO_INCREMENT,
+    FullName VARCHAR(100) NOT NULL,
+    Login VARCHAR(100) UNIQUE NOT NULL,
+    Password VARCHAR(50) NOT NULL,
+    Role VARCHAR(50) NOT NULL
+);
+
+-- =====================================================
+-- 3. ТАБЛИЦА ПУНКТОВ ВЫДАЧИ
+-- =====================================================
+CREATE TABLE IF NOT EXISTS PickupPoints (
+    PointID INT PRIMARY KEY AUTO_INCREMENT,
+    Address VARCHAR(200) NOT NULL,
+    City VARCHAR(50) DEFAULT 'Лесной'
+);
+
+-- =====================================================
+-- 4. ТАБЛИЦА ЗАКАЗОВ
+-- =====================================================
+CREATE TABLE IF NOT EXISTS Orders (
+    OrderID INT PRIMARY KEY AUTO_INCREMENT,
+    OrderNumber INT UNIQUE NOT NULL,
+    OrderDate DATE NOT NULL,
+    DeliveryDate DATE,
+    PointID INT,
+    CustomerName VARCHAR(100),
+    PickupCode INT,
+    Status VARCHAR(50) DEFAULT 'Новый',
+    FOREIGN KEY (PointID) REFERENCES PickupPoints(PointID)
+);
+
+-- =====================================================
+-- 5. ТАБЛИЦА ДЕТАЛЕЙ ЗАКАЗОВ
+-- =====================================================
+CREATE TABLE IF NOT EXISTS OrderDetails (
+    DetailID INT PRIMARY KEY AUTO_INCREMENT,
+    OrderID INT,
+    Article VARCHAR(20),
+    Quantity INT,
+    FOREIGN KEY (OrderID) REFERENCES Orders(OrderID),
+    FOREIGN KEY (Article) REFERENCES Products(Article)
+);
+
